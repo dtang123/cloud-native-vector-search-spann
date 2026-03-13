@@ -32,7 +32,7 @@ bool InstructionSet::AVX2(void)
 }
 bool InstructionSet::AVX512(void)
 {
-    return CPU_Rep.HW_AVX512;
+    	return CPU_Rep.HW_AVX512;
 }
 
 void InstructionSet::PrintInstructionSet(void)
@@ -72,7 +72,6 @@ InstructionSet::InstructionSet_Internal::InstructionSet_Internal()
         cpuid(info, 0x00000007);
         HW_AVX2 = (info[1] & ((int)1 << 5)) != 0;
         HW_AVX512 = (info[1] & (((int)1 << 16) | ((int)1 << 30)));
-
 // If we are not compiling support for AVX-512 due to old compiler version, we should not call it
 #ifdef _MSC_VER
 #if _MSC_VER < 1920

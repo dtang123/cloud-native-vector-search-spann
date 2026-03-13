@@ -941,6 +941,8 @@ namespace SPTAG
             }
 
             aio_context_t& GetIOCP(int i) { return m_iocps[i % m_iocps.size()]; }
+		
+	    virtual bool UsesLinuxAIO() const override { return true; }
 
             int GetFileHandler() { return m_fileHandle; }
 

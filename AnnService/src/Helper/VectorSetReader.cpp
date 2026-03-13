@@ -19,7 +19,7 @@ ReaderOptions::ReaderOptions(VectorValueType p_valueType, DimensionType p_dimens
     AddOptionalOption(m_normalized, "-norm", "--normalized", "Vector is normalized.");
     AddRequiredOption(m_dimension, "-d", "--dimension", "Dimension of vector.");
     AddRequiredOption(m_inputValueType, "-v", "--vectortype", "Input vector data type. Default is float.");
-    AddRequiredOption(m_inputFileType, "-f", "--filetype", "Input file type (DEFAULT, TXT, XVEC). Default is DEFAULT.");
+    AddOptionalOption(m_inputFileType, "-f", "--filetype", "Input file type (DEFAULT, TXT, XVEC). Default is DEFAULT.");
 }
 
 ReaderOptions::~ReaderOptions()

@@ -5,12 +5,18 @@
 #include "inc/Core/Common/QueryResultSet.h"
 #include "inc/Core/Common/TruthSet.h"
 #include "inc/Core/VectorIndex.h"
+#ifdef __linux__
 #include "inc/Helper/AsyncFileReader.h"
+#endif
 #include "inc/Helper/CommonHelper.h"
 #include "inc/Helper/SimpleIniReader.h"
 #include "inc/Helper/StringConvert.h"
 #include "inc/Helper/VectorSetReader.h"
+#include "inc/Helper/DiskIO.h" //CHANGED added
+#include "inc/Helper/S3FileIO.h" // CHANGED added
+#include <aws/core/Aws.h> // CHANGED added
 #include <algorithm>
+#include <cctype>
 #include <atomic>
 #include <chrono>
 #include <ctime>
@@ -19,11 +25,22 @@
 #include <thread>
 
 using namespace SPTAG;
-
+//CHANGED start
+/*namespace SPTAG {
+namespace SPANN {
+    std::function<std::shared_ptr<Helper::DiskIO>(void)> f_createAsyncIO = []() -> std::shared_ptr<Helper::DiskIO> {
+    	std::cerr << "[S3FileIO] f_createAsyncIO lambda called\n";
+        std::cerr.flush();
+	return std::make_shared<Helper::S3FileIO>();
+    };
+}
+}
+//CHANGED end
+*/
 class SearcherOptions : public Helper::ReaderOptions
 {
   public:
-    SearcherOptions() : Helper::ReaderOptions(VectorValueType::Float, 0, VectorFileType::TXT, "|", 32)
+    SearcherOptions() : Helper::ReaderOptions(VectorValueType::Float, 0, VectorFileType::DEFAULT, "|", 32) //Changed TXT to DEFAULT
     {
         AddRequiredOption(m_queryFile, "-i", "--input", "Input raw data.");
         AddRequiredOption(m_indexFolder, "-x", "--index", "Index folder.");
@@ -40,6 +57,16 @@ class SearcherOptions : public Helper::ReaderOptions
         AddOptionalOption(m_debugQuery, "-q", "--debugquery", "Debug query number.");
         AddOptionalOption(m_enableADC, "-adc", "--adc", "Enable ADC Distance computation");
         AddOptionalOption(m_outputformat, "-of", "--ouputformat", "0: TXT 1: BINARY.");
+        
+        // Common options used by experiment scripts
+        AddOptionalOption(m_dimensions, "-d", "--dimensions", "Vector dimensions.");
+        AddOptionalOption(m_inputValueType, "-v", "--valuetype", "Dataset value type. (Float, UInt8, Int8)");
+        AddOptionalOption(m_dataFileType, "-f", "--filetype", "Original data file type. (TXT or DEFAULT)");
+        AddOptionalOption(m_threadNum, "-t", "--threads", "Number of concurrent queries / threads.");
+
+        // Cache control (SPANN BuildSSDIndex.CacheSizeGB)
+        AddOptionalOption(m_enableCache, "-ec", "--enablecache", "Enable cache (true/false)");
+        AddOptionalOption(m_cacheConfig, "-cc", "--cachesize", "Cache size string (e.g. 4096M, 4G)");
     }
 
     ~SearcherOptions()
@@ -75,6 +102,17 @@ class SearcherOptions : public Helper::ReaderOptions
     bool m_enableADC = false;
 
     int m_outputformat = 0;
+
+    int m_dimensions = 0;
+
+    bool m_enableCache = false;
+    
+    int m_threadNum = 1;
+
+    std::string m_inputValueType = "";
+
+    std::string m_cacheConfig = "";
+    
 };
 
 template <typename T> int Process(std::shared_ptr<SearcherOptions> options, VectorIndex &index)
@@ -408,7 +446,19 @@ int main(int argc, char **argv)
     {
         exit(1);
     }
+    // CHANGED START
+    std::cerr << "[DEBUG] INIT AWS SDK \n";
+    std::cerr.flush();
+    Aws::SDKOptions awsOptions;
+    Aws::InitAPI(awsOptions);
+    {
 
+    /*SPTAG::f_createIO = []() -> std::shared_ptr<Helper::DiskIO> {
+    	return std::shared_ptr<Helper::DiskIO>(new Helper::SimpleFileIO());
+    };*/
+    // CHANGED END
+    std::cerr << "[DEBUG] Calling Load Index \n";
+    std::cerr.flush();
     std::shared_ptr<SPTAG::VectorIndex> vecIndex;
     auto ret = SPTAG::VectorIndex::LoadIndex(options->m_indexFolder, vecIndex);
     if (SPTAG::ErrorCode::Success != ret || nullptr == vecIndex)
@@ -440,7 +490,62 @@ int main(int argc, char **argv)
                      paramVal.c_str());
     }
 
+    std::cerr << "[DEBUG Main.cpp] Finished Loading Parameters \n";
+    std::cerr << "[DEBUG Main.cpp] Starting Cache configs \n";
+    std::cerr.flush();
+    // NEW: Handle cache options passed via short flags (-ec, -cc)
+    if (options->m_enableCache || !options->m_cacheConfig.empty())
+    {
+        int cacheGB = 0;
+        if (!options->m_cacheConfig.empty())
+        {
+            std::string s = options->m_cacheConfig;
+            try
+            {
+                char unit = s.back();
+                if (std::isalpha(unit))
+                {
+                    std::string numstr = s.substr(0, s.size() - 1);
+                    long long num = std::stoll(numstr);
+                    if (unit == 'M' || unit == 'm')
+                        cacheGB = (int)(num / 1024);
+                    else if (unit == 'G' || unit == 'g')
+                        cacheGB = (int)num;
+                    else if (unit == 'K' || unit == 'k')
+                        cacheGB = (int)(num / 1024 / 1024);
+                }
+                else
+                {
+                    long long num = std::stoll(s);
+                    cacheGB = (int)(num / 1024); // treat as MB if no unit
+                }
+            }
+            catch (...) { cacheGB = 0; }
+        }
+
+        if (cacheGB > 0)
+        {
+            iniReader.SetParameter("BuildSSDIndex", "CacheSizeGB", std::to_string(cacheGB));
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Set [BuildSSDIndex]CacheSizeGB = %d\n", cacheGB);
+        }
+        else if (options->m_enableCache)
+        {
+            iniReader.SetParameter("BuildSSDIndex", "CacheSizeGB", "1");
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Set [BuildSSDIndex]CacheSizeGB = 1 (enable cache)\n");
+        }
+    }
+
+    VectorValueType valueType = VectorValueType::Undefined;
+    std::string vType = options->m_inputValueType;
+    std::transform(vType.begin(), vType.end(), vType.begin(), [](unsigned char c){ return std::tolower(c); });
+
+    if (vType == "float") valueType = VectorValueType::Float;
+    else if (vType == "int8") valueType = VectorValueType::Int8;
+    else if (vType == "uint8") valueType = VectorValueType::UInt8;
+
     std::string sections[] = {"Base", "SelectHead", "BuildHead", "BuildSSDIndex", "Index"};
+    std::cerr << "[DEBUG Main.cpp] Starting INI sectionprocessing \n";
+    std::cerr.flush();
     for (int i = 0; i < 5; i++)
     {
         if (!iniReader.DoesParameterExist(sections[i], "NumberOfThreads"))
@@ -454,8 +559,9 @@ int main(int argc, char **argv)
     }
 
     vecIndex->UpdateIndex();
-
-    switch (options->m_inputValueType)
+    std::cerr << "[DEBUG] m_inputValueType='" << options->m_inputValueType << "' valueType=" << (int)valueType << "\n";
+    std::cerr.flush();
+    switch (valueType)
     {
 #define DefineVectorValueType(Name, Type)                                                                              \
     case VectorValueType::Name:                                                                                        \
@@ -468,5 +574,7 @@ int main(int argc, char **argv)
     default:
         break;
     }
+    }
+    Aws::ShutdownAPI(awsOptions); // CHANGED added
     return 0;
 }

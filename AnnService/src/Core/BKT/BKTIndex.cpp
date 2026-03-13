@@ -90,27 +90,42 @@ template <typename T> ErrorCode Index<T>::LoadIndexDataFromMemory(const std::vec
 template <typename T>
 ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>> &p_indexStreams)
 {
+    std::cerr << "[DEBUG BKT] LoadIndexData called, streams=" << p_indexStreams.size() << "\n";
+    std::cerr.flush();
     if (p_indexStreams.size() < 4)
         return ErrorCode::LackOfInputs;
 
     ErrorCode ret = ErrorCode::Success;
+    std::cerr << "[DEBUG BKT] stream[0]=" << (p_indexStreams[0] ? "valid" : "NULL") << "\n";
+    std::cerr.flush();
     if (p_indexStreams[0] == nullptr ||
         (ret = m_pSamples.Load(p_indexStreams[0], m_iDataBlockSize, m_iDataCapacity)) != ErrorCode::Success)
         return ret;
+    std::cerr << "[DEBUG BKT] Samples loaded OK, R=" << m_pSamples.R() << "\n";
+    std::cerr.flush();
+    std::cerr << "[DEBUG BKT] stream[1]=" << (p_indexStreams[1] ? "valid" : "NULL") << "\n";
+    std::cerr.flush();
     if (p_indexStreams[1] == nullptr || (ret = m_pTrees.LoadTrees(p_indexStreams[1])) != ErrorCode::Success)
         return ret;
+    std::cerr << "[DEBUG BKT] Trees loaded OK\n"; std::cerr.flush();
+    std::cerr << "[DEBUG BKT] stream[2]=" << (p_indexStreams[2] ? "valid" : "NULL") << "\n"; std::cerr.flush();
     if (p_indexStreams[2] == nullptr ||
         (ret = m_pGraph.LoadGraph(p_indexStreams[2], m_iDataBlockSize, m_iDataCapacity)) != ErrorCode::Success)
         return ret;
+    std::cerr << "[DEBUG BKT] Graph loaded OK, R=" << m_pGraph.R() << "\n"; std::cerr.flush();
+
+    std::cerr << "[DEBUG BKT] stream[3]=" << (p_indexStreams[3] ? "valid" : "NULL") << "\n"; std::cerr.flush();
     if (p_indexStreams[3] == nullptr)
         m_deletedID.Initialize(m_pSamples.R(), m_iDataBlockSize, m_iDataCapacity,
                                COMMON::LabelSet::InvalidIDBehavior::AlwaysContains);
     else if ((ret = m_deletedID.Load(p_indexStreams[3], m_iDataBlockSize, m_iDataCapacity,
                                      COMMON::LabelSet::InvalidIDBehavior::AlwaysContains)) != ErrorCode::Success)
         return ret;
-
+    std::cerr << "[DEBUG BKT] DeletedID loaded OK, R=" << m_deletedID.R() << "\n"; std::cerr.flush();
     if (m_pSamples.R() != m_pGraph.R() || m_pSamples.R() != m_deletedID.R())
     {
+	std::cerr << "[DEBUG BKT] FAIL: size mismatch Samples=" << m_pSamples.R() 
+                  << " Graph=" << m_pGraph.R() << " DeletedID=" << m_deletedID.R() << "\n"; std::cerr.flush();
         SPTAGLIB_LOG(SPTAG::Helper::LogLevel::LL_Error,
                      "Index data is corrupted, please rebuild the index. Samples: %i, Graph: %i, DeletedID: %i.",
                      m_pSamples.R(), m_pGraph.R(), m_deletedID.R());

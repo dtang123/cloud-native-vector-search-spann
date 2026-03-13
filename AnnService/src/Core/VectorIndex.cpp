@@ -797,7 +797,8 @@ ErrorCode VectorIndex::LoadIndex(const std::string &p_loaderFilePath, std::share
     std::string folderPath(p_loaderFilePath);
     if (!folderPath.empty() && *(folderPath.rbegin()) != FolderSep)
         folderPath += FolderSep;
-
+    std::cerr << "[DEBUG] Call to VectorIndex::LoadIndex with folder path: " << folderPath << "\n";
+    std::cerr.flush();
     Helper::IniReader iniReader;
     {
         auto fp = SPTAG::f_createIO();
@@ -807,11 +808,16 @@ ErrorCode VectorIndex::LoadIndex(const std::string &p_loaderFilePath, std::share
             return ErrorCode::FailedParseValue;
     }
 
+    std::cerr << "[DEBUG] Successfully opened INI file \n";
+    std::cerr.flush();
+
     IndexAlgoType algoType = iniReader.GetParameter("Index", "IndexAlgoType", IndexAlgoType::Undefined);
     VectorValueType valueType = iniReader.GetParameter("Index", "ValueType", VectorValueType::Undefined);
     if ((p_vectorIndex = CreateInstance(algoType, valueType)) == nullptr)
         return ErrorCode::FailedParseValue;
-
+    std::cerr << "[DEBUG] IndexAlgoType: \n";
+    std::cerr << "[DEBUG] ValueType: \n";
+    std::cerr.flush();
     ErrorCode ret = ErrorCode::Success;
     if ((ret = p_vectorIndex->LoadIndexConfig(iniReader)) != ErrorCode::Success)
         return ret;
@@ -829,6 +835,8 @@ ErrorCode VectorIndex::LoadIndex(const std::string &p_loaderFilePath, std::share
     std::vector<std::shared_ptr<Helper::DiskIO>> handles;
     for (std::string &f : *indexfiles)
     {
+	std::cerr << "[DEBUG] Loop through file: " << f << "\n";
+        std::cerr.flush();
         auto ptr = SPTAG::f_createIO();
         if (ptr == nullptr || !ptr->Initialize((folderPath + f).c_str(), std::ios::binary | std::ios::in))
         {
@@ -842,10 +850,12 @@ ErrorCode VectorIndex::LoadIndex(const std::string &p_loaderFilePath, std::share
     {
         p_vectorIndex->SetParameter("IndexDirectory", p_loaderFilePath, "Base");
     }
-
+    std::cerr << "[DEBUG] Loading Index Data: \n";
+    std::cerr.flush();
     if ((ret = p_vectorIndex->LoadIndexData(handles)) != ErrorCode::Success)
         return ret;
-
+    std::cerr << "[DEBUG] Reading INI file\n";
+    std::cerr.flush();
     size_t metaStart = p_vectorIndex->GetIndexFiles()->size();
     if (iniReader.DoesSectionExist("MetaData"))
     {

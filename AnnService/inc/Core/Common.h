@@ -33,9 +33,14 @@
 #include <sys/types.h>
 
 #if defined(__INTEL_COMPILER)
-#include <malloc.h>
+    #include <malloc.h>
+#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
+    #include <mm_malloc.h>
 #else
-#include <mm_malloc.h>
+    #include <stdlib.h>
+    // Map Intel-style aligned malloc to standard library for ARM/macOS
+    #define _mm_malloc(size, alignment) aligned_alloc(alignment, size)
+    #define _mm_free(ptr) free(ptr)
 #endif
 
 #define FolderSep '/'

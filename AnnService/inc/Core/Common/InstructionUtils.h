@@ -9,9 +9,13 @@
 #ifndef GPU
 
 #ifndef _MSC_VER
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
 #include <cpuid.h>
-#include <xmmintrin.h>
-#include <immintrin.h>
+#endif
+#if defined(__x86_64__) || defined(_M_X64)
+    #include <xmmintrin.h>
+    #include <immintrin.h>
+#endif
 
 void cpuid(int info[4], int InfoType);
 

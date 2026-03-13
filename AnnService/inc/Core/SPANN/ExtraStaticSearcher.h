@@ -167,8 +167,12 @@ namespace SPTAG
             {
                 return m_available;
             }
-
-            void InitWorkSpace(ExtraWorkSpace* p_exWorkSpace, bool clear = false) override
+		
+	    void SetIOFactory(std::function<std::shared_ptr<Helper::DiskIO>()> factory) {
+    		m_createIO = std::move(factory);
+	    }
+            
+	    void InitWorkSpace(ExtraWorkSpace* p_exWorkSpace, bool clear = false) override
             {
                 if (clear) {
                     p_exWorkSpace->Clear(m_opt->m_searchInternalResultNum, max(m_opt->m_postingPageLimit, m_opt->m_searchPostingPageLimit + 1) << PageSizeEx, false, m_opt->m_enableDataCompression);
@@ -1181,7 +1185,7 @@ namespace SPTAG
 
             int LoadingHeadInfo(const std::string& p_file, int p_postingPageLimit, std::vector<ListInfo>& p_listInfos)
             {
-                auto ptr = SPTAG::f_createIO();
+		auto ptr = m_createIO ? m_createIO() : SPTAG::f_createIO();
                 if (ptr == nullptr || !ptr->Initialize(p_file.c_str(), std::ios::binary | std::ios::in)) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to open file: %s\n", p_file.c_str());
                     throw std::runtime_error("Failed open file in LoadingHeadInfo");
@@ -1756,6 +1760,8 @@ namespace SPTAG
             int m_totalListCount = 0;
 
             int m_listPerFile = 0;
+	    std::function<std::shared_ptr<Helper::DiskIO>()> m_createIO;
+
         };
     } // namespace SPANN
 } // namespace SPTAG

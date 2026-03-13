@@ -67,7 +67,16 @@ add_library (DistanceUtils STATIC
     )
 
 if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
-    target_compile_options(DistanceUtils PRIVATE -mavx2 -mavx -msse -msse2 -mavx512f -mavx512bw -mavx512dq -fPIC)
+    # Check if we are on ARM (Apple Silicon) or x86
+    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+        # Use ARM-native optimizations (NEON) instead of AVX/SSE
+        target_compile_options(DistanceUtils PRIVATE -march=native -fPIC)
+        message(STATUS "Configuring DistanceUtils for ARM/Apple Silicon")
+    else()
+        # Keep original Intel flags for x86_64 systems
+        target_compile_options(DistanceUtils PRIVATE -mavx2 -mavx -msse -msse2 -mavx512f -mavx512bw -mavx512dq -fPIC)
+        message(STATUS "Configuring DistanceUtils for x86/Intel")
+    endif()
 endif()
 
 add_library (SPTAGLib SHARED ${SRC_FILES} ${HDR_FILES})
@@ -102,12 +111,15 @@ if (NOT LIBRARYONLY)
 
     file(GLOB BUILDER_FILES ${AnnService}/src/IndexBuilder/*.cpp)
     add_executable (indexbuilder ${BUILDER_FILES})
-    target_link_libraries(indexbuilder ${Boost_LIBRARIES} SPTAGLibStatic)
+    find_package(AWSSDK REQUIRED COMPONENTS s3 core)
+    target_link_libraries(indexbuilder ${Boost_LIBRARIES} SPTAGLibStatic ${AWSSDK_LINK_LIBRARIES})
 
     file(GLOB SEARCHER_FILES ${AnnService}/src/IndexSearcher/*.cpp)
     add_executable (indexsearcher ${SEARCHER_FILES})
-    target_link_libraries(indexsearcher ${Boost_LIBRARIES} SPTAGLibStatic)
-    
+    # CHANGED: Link AWS SDK for S3FileIO
+    target_link_libraries(indexsearcher ${Boost_LIBRARIES} SPTAGLibStatic ${AWSSDK_LINK_LIBRARIES})
+    target_include_directories(indexsearcher PRIVATE ${AWSSDK_INCLUDE_DIRS})
+
     file(GLOB QUANTIZER_HDR_FILES ${AnnService}/inc/Quantizer/*.h)
     file(GLOB QUANTIZER_FILES ${AnnService}/src/Quantizer/*.cpp)
     add_executable (quantizer ${QUANTIZER_FILES} ${QUANTIZER_HDR_FILES})

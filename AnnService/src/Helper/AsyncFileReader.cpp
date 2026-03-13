@@ -66,6 +66,15 @@ struct timespec AIOTimeout
 };
 bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, AsyncReadRequest *readRequests, int num)
 {
+    // If handlers don't use libaio, fall back to virtual BatchReadFile
+    if (!handlers.empty() && !handlers[0]->UsesLinuxAIO()) {
+        for (int i = 0; i < num; i++) {
+            int fileid = (readRequests[i].m_status >> 16);
+            handlers[fileid]->ReadFileAsync(readRequests[i]);
+        }
+        return true;
+    }
+
     std::vector<struct iocb> myiocbs(num);
     std::vector<std::vector<struct iocb *>> iocbs(handlers.size());
     std::vector<int> submitted(handlers.size(), 0);

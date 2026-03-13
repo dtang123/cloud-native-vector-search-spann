@@ -1,6 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
-
+#include "inc/Helper/S3FileIO.h"
 #include "inc/Core/SPANN/Index.h"
 #include "inc/Helper/VectorSetReaders/MemoryReader.h"
 #include "inc/Core/SPANN/ExtraDynamicSearcher.h"
@@ -22,10 +22,18 @@ template <typename T> thread_local std::unique_ptr<T> COMMON::ThreadLocalWorkSpa
 namespace SPANN
 {
 EdgeCompare Selection::g_edgeComparer;
-
+// CHANGED START
 std::function<std::shared_ptr<Helper::DiskIO>(void)> f_createAsyncIO = []() -> std::shared_ptr<Helper::DiskIO> {
-    return std::shared_ptr<Helper::DiskIO>(new Helper::AsyncFileIO());
+    const char* backend = std::getenv("SPTAG_IO_BACKEND");
+    if (backend && std::string(backend) == "s3") {
+        return std::make_shared<Helper::S3FileIO>(Helper::DiskIOScenario::DIS_BulkRead);
+    }
+    return std::make_shared<Helper::AsyncFileIO>();
 };
+/*std::function<std::shared_ptr<Helper::DiskIO>(void)> f_createAsyncIO = []() -> std::shared_ptr<Helper::DiskIO> {
+    return std::shared_ptr<Helper::DiskIO>(new Helper::AsyncFileIO());
+};*/
+// CHANGED END
 
 template <typename T> bool Index<T>::CheckHeadIndexType()
 {
@@ -111,6 +119,15 @@ template <typename T> ErrorCode Index<T>::LoadIndexDataFromMemory(const std::vec
             m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
         else
             m_extraSearcher.reset(new ExtraStaticSearcher<T>());
+    	{
+        const char* backend = std::getenv("SPTAG_IO_BACKEND");
+        if (backend && std::string(backend) == "s3") {
+	    m_extraSearcher->SetIOFactory([]() {
+    	        return std::make_shared<Helper::S3FileIO>(
+                    Helper::DiskIOScenario::DIS_UserRead);
+   	    });
+	}
+    }
     }
     else
     {
@@ -188,6 +205,15 @@ ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::Disk
             m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
         else
             m_extraSearcher.reset(new ExtraStaticSearcher<T>());
+    	{
+            const char* backend = std::getenv("SPTAG_IO_BACKEND");
+            if (backend && std::string(backend) == "s3") {
+	        m_extraSearcher->SetIOFactory([]() {
+    		    return std::make_shared<Helper::S3FileIO>(
+                        Helper::DiskIOScenario::DIS_UserRead);
+   	        });
+	    }
+    	}
     }
     else
     {
