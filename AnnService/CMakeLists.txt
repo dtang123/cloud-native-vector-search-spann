@@ -79,9 +79,12 @@ if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
     endif()
 endif()
 
+find_package(AWSSDK REQUIRED COMPONENTS s3 core)
 add_library (SPTAGLib SHARED ${SRC_FILES} ${HDR_FILES})
+target_include_directories(SPTAGLib PRIVATE ${AWSSDK_INCLUDE_DIRS})
 target_link_libraries (SPTAGLib DistanceUtils ${RocksDB_LIBRARIES} ${uring_LIBRARIES} libzstd_shared ${NUMA_LIBRARY} ${TBB_LIBRARIES} ${SPDK_LIBRARIES})
 add_library (SPTAGLibStatic STATIC ${SRC_FILES} ${HDR_FILES})
+target_include_directories(SPTAGLibStatic PRIVATE ${AWSSDK_INCLUDE_DIRS})
 target_link_libraries (SPTAGLibStatic DistanceUtils ${RocksDB_LIBRARIES} ${uring_LIBRARIES} libzstd_static ${NUMA_LIBRARY_STATIC} ${TBB_LIBRARIES} ${SPDK_LIBRARIES})
 
 if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
@@ -111,7 +114,6 @@ if (NOT LIBRARYONLY)
 
     file(GLOB BUILDER_FILES ${AnnService}/src/IndexBuilder/*.cpp)
     add_executable (indexbuilder ${BUILDER_FILES})
-    find_package(AWSSDK REQUIRED COMPONENTS s3 core)
     target_link_libraries(indexbuilder ${Boost_LIBRARIES} SPTAGLibStatic ${AWSSDK_LINK_LIBRARIES})
 
     file(GLOB SEARCHER_FILES ${AnnService}/src/IndexSearcher/*.cpp)

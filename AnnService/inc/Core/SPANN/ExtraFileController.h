@@ -257,7 +257,7 @@ namespace SPTAG::SPANN {
             ~LRUCache() {}
 
             bool evict(SizeType key, void* value, int vsize, std::unordered_map<SizeType, CacheEntry>::iterator& it) {
-                if (value != nullptr) {
+                if (value != nullptr && fileIO != nullptr) {
                     ++evict_counter;
                     std::string valstr((char*)value, vsize);
                     if (fileIO->Put(key, valstr, MaxTimeout, &reqs, false) != ErrorCode::Success) {

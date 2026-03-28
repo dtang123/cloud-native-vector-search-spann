@@ -79,7 +79,7 @@ public:
                           << outcome.GetError().GetMessage() << "\n";
                 return false;
             }
-            m_fileSize = static_cast<std::uint64_t>(outcome.GetResult().GetContentLength());
+            m_fileSize = static_cast<std::uint64_t>(outcome.GetResultWithOwnership().GetContentLength());
         }
 
         // Prefetch first 64MB in one GET to serve LoadingHeadInfo fast
@@ -102,7 +102,7 @@ public:
             // Don't fail — fall back to per-read S3 GETs
         } else {
             m_prefetchBuf.resize(prefetchEnd + 1);
-	    auto& result = outcome.GetResult();
+	    auto result = outcome.GetResultWithOwnership();
             auto& body = result.GetBody();
             body.read(m_prefetchBuf.data(), static_cast<std::streamsize>(prefetchEnd + 1));
             m_prefetchSize = static_cast<std::uint64_t>(body.gcount());
@@ -156,11 +156,14 @@ public:
                       << " : " << outcome.GetError().GetMessage() << "\n";
             return 0;
         }
-	auto& result = outcome.GetResult();
-        auto& body = result.GetBody();
+        auto result = outcome.GetResultWithOwnership();
+	auto& body = result.GetBody();
         body.read(buffer, static_cast<std::streamsize>(readSize));
         std::uint64_t got = static_cast<std::uint64_t>(body.gcount());
-        m_readPos.store(pos + got);
+        if (got < readSize) {
+    	    std::cerr << "[CRITICAL] S3 short read: expected " << readSize << " but got " << got << "\n";
+	}
+	m_readPos.store(pos + got);
         return got;
     }
 
@@ -200,7 +203,8 @@ public:
         auto outcome = m_client->GetObject(s3req);
         bool success = false;
         if (outcome.IsSuccess()) {
-            auto& body = outcome.GetResult().GetBody();
+            auto result = outcome.GetResultWithOwnership();
+      	    auto& body = result.GetBody();
             
             // Loop until all bytes are read — S3 SDK may return chunks
             std::uint64_t totalRead = 0;
@@ -223,7 +227,9 @@ public:
                       << outcome.GetError().GetMessage() << "\n";
         }
 
-        if (req.m_callback) req.m_callback(success);
+        if (req.m_callback) {
+	    req.m_callback(success);
+	}
     }
     return count;
 }
@@ -254,7 +260,7 @@ public:
         req.SetRange(range);
         auto outcome = m_client->GetObject(req);
         if (!outcome.IsSuccess()) return 0;
-	auto& result = outcome.GetResult();
+	auto result = outcome.GetResultWithOwnership();
         auto& body = result.GetBody();
         std::uint64_t count = 0;
         for (int c = body.get(); c != EOF && count < readSize; c = body.get()) {
