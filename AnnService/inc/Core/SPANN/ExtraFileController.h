@@ -201,6 +201,9 @@ namespace SPTAG::SPANN {
             } 
         };
 
+
+    public:
+
         struct CacheCounters
         {
             int64_t query{};
@@ -517,8 +520,6 @@ namespace SPTAG::SPANN {
                 return result;
             }
         };
-
-    public:
         FileIO(SPANN::Options& p_opt) {
             m_mappingPath = p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdMappingFile;
             m_blockLimit = max(p_opt.m_postingPageLimit, p_opt.m_searchPostingPageLimit) + p_opt.m_bufferLength + 1;

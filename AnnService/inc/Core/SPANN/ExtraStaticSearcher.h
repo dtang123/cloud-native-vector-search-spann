@@ -8,6 +8,7 @@
 #include "inc/Helper/AsyncFileReader.h"
 #include "IExtraSearcher.h"
 #include "inc/Core/Common/TruthSet.h"
+#include "inc/Core/SPANN/ExtraFileController.h"
 #include "Compressor.h"
 
 #include <map>
@@ -264,7 +265,7 @@ namespace SPTAG
                 if (p_opt.m_cacheSize > 0) {
     			int64_t capacity = static_cast<int64_t>(p_opt.m_cacheSize) << 30;
     			int blockLimit = max(p_opt.m_postingPageLimit, p_opt.m_searchPostingPageLimit) + 1;
-    			m_pSearchCache = new ShardedLRUCache(p_opt.m_cacheShards, capacity, blockLimit, nullptr);
+    			m_pSearchCache = new FileIO::ShardedLRUCache(p_opt.m_cacheShards, capacity, blockLimit, nullptr);
     			SPTAGLIB_LOG(Helper::LogLevel::LL_Info,
         			"ExtraStaticSearcher: cache enabled, capacity=%d GB, shards=%d\n",
         		p_opt.m_cacheSize, p_opt.m_cacheShards);
@@ -1830,7 +1831,7 @@ namespace SPTAG
             int m_listPerFile = 0;
 	    std::function<std::shared_ptr<Helper::DiskIO>()> m_createIO;
 		
-	    ShardedLRUCache* m_pSearchCache = nullptr;
+	    FileIO::ShardedLRUCache* m_pSearchCache = nullptr;
         };
     } // namespace SPANN
 } // namespace SPTAG
