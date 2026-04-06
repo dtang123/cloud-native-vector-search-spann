@@ -344,6 +344,9 @@ namespace SPTAG {
 
             virtual ErrorCode Checkpoint(std::string prefix) { return ErrorCode::Success; }
             virtual void SetIOFactory(std::function<std::shared_ptr<Helper::DiskIO>()> factory) {}
+	    
+	    virtual void PrintStats() const {}
+	    virtual void ReinitCache() {}
 	};
     } // SPANN
 } // SPTAG

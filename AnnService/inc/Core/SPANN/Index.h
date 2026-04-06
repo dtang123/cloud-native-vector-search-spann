@@ -78,10 +78,17 @@ namespace SPTAG
             }
 
             ~Index() {}
+	    
 
             inline std::shared_ptr<VectorIndex> GetMemoryIndex() { return m_index; }
             inline std::shared_ptr<IExtraSearcher> GetDiskIndex() { return m_extraSearcher; }
-            inline Options* GetOptions() { return &m_options; }
+	    void PrintExtraSearcherStats() const override {
+                if (m_extraSearcher) m_extraSearcher->PrintStats();
+            }
+	    virtual void ReinitCache() {
+	        if (m_extraSearcher) m_extraSearcher->ReinitCache();
+	    }
+	    inline Options* GetOptions() { return &m_options; }
 
             inline SizeType GetNumSamples() const { return m_versionMap.Count(); }
             inline DimensionType GetFeatureDim() const { return m_index->GetFeatureDim(); }

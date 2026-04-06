@@ -16,6 +16,8 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <iomanip>
+#include <sstream>
 
 namespace SPTAG {
 namespace Helper {
@@ -179,60 +181,86 @@ public:
                             const std::chrono::microseconds& /*timeout*/,
                             int /*batchSize*/ = -1) override
 {
+    if (count == 0) return 0;
+
+    std::vector<std::future<bool>> futures;
+    futures.reserve(count);
+
     for (std::uint32_t i = 0; i < count; ++i) {
         auto& req = reqs[i];
-        
+
         if (!m_available.load() || !req.m_buffer) {
             if (req.m_callback) req.m_callback(false);
+            futures.push_back(std::async(std::launch::deferred, 
+                                         []{ return false; }));
             continue;
         }
 
-        // Fast path: serve from prefetch buffer
-        if (m_prefetchDone && req.m_offset + req.m_readSize <= m_prefetchSize) {
-            std::memcpy(req.m_buffer, m_prefetchBuf.data() + req.m_offset, req.m_readSize);
+        // Fast path: serve from prefetch buffer synchronously,
+        // no need to launch a thread for this
+        if (m_prefetchDone && 
+            req.m_offset + req.m_readSize <= m_prefetchSize) {
+            std::memcpy(req.m_buffer, 
+                       m_prefetchBuf.data() + req.m_offset, 
+                       req.m_readSize);
             if (req.m_callback) req.m_callback(true);
+            futures.push_back(std::async(std::launch::deferred, 
+                                         []{ return true; }));
             continue;
         }
 
-        // S3 ranged GET with retry loop for short reads
-        Aws::S3::Model::GetObjectRequest s3req;
-        s3req.SetBucket(m_bucket);
-        s3req.SetKey(m_key);
-        s3req.SetRange(MakeRange(req.m_offset, req.m_offset + req.m_readSize - 1));
+        // S3 path: launch each GET concurrently
+        futures.push_back(std::async(std::launch::async,
+            [this, &req]() -> bool {
+                Aws::S3::Model::GetObjectRequest s3req;
+                s3req.SetBucket(m_bucket);
+                s3req.SetKey(m_key);
+                s3req.SetRange(MakeRange(req.m_offset,
+                                        req.m_offset + req.m_readSize - 1));
 
-        auto outcome = m_client->GetObject(s3req);
-        bool success = false;
-        if (outcome.IsSuccess()) {
-            auto result = outcome.GetResultWithOwnership();
-      	    auto& body = result.GetBody();
-            
-            // Loop until all bytes are read — S3 SDK may return chunks
-            std::uint64_t totalRead = 0;
-            while (totalRead < req.m_readSize) {
-                body.read(req.m_buffer + totalRead,
-                          static_cast<std::streamsize>(req.m_readSize - totalRead));
-                std::uint64_t got = static_cast<std::uint64_t>(body.gcount());
-                if (got == 0) {
-                    std::cerr << "[S3FileIO] Short read at offset=" << req.m_offset
-                              << " got=" << totalRead 
-                              << " expected=" << req.m_readSize << "\n";
-                    break;
+                auto outcome = m_client->GetObject(s3req);
+                bool success = false;
+                if (outcome.IsSuccess()) {
+                    auto result = outcome.GetResultWithOwnership();
+                    auto& body = result.GetBody();
+                    std::uint64_t totalRead = 0;
+                    while (totalRead < req.m_readSize) {
+                        body.read(req.m_buffer + totalRead,
+                                 static_cast<std::streamsize>(
+                                     req.m_readSize - totalRead));
+                        std::uint64_t got = 
+                            static_cast<std::uint64_t>(body.gcount());
+                        if (got == 0) {
+                            std::cerr << "[S3FileIO] Short read offset="
+                                      << req.m_offset
+                                      << " got=" << totalRead
+                                      << " expected=" << req.m_readSize
+                                      << "\n";
+                            break;
+                        }
+                        totalRead += got;
+                    }
+                    success = (totalRead == req.m_readSize);
+                } else {
+                    std::cerr << "[S3FileIO] GET failed offset=" 
+                              << req.m_offset
+                              << " size=" << req.m_readSize << " : "
+                              << outcome.GetError().GetMessage() << "\n";
                 }
-                totalRead += got;
-            }
-            success = (totalRead == req.m_readSize);
-        } else {
-            std::cerr << "[S3FileIO] BatchReadFile GET failed offset=" << req.m_offset
-                      << " size=" << req.m_readSize << " : "
-                      << outcome.GetError().GetMessage() << "\n";
-        }
 
-        if (req.m_callback) {
-	    req.m_callback(success);
-	}
+                if (req.m_callback) req.m_callback(success);
+                return success;
+            }
+        ));
     }
-    return count;
-}
+
+    // Wait for all S3 GETs to complete before returning
+    std::uint32_t succeeded = 0;
+    for (auto& f : futures) {
+        if (f.get()) succeeded++;
+    }
+        return succeeded;
+    }
 
     std::uint64_t TellP() override { return m_readPos.load(); }
 
@@ -277,6 +305,7 @@ public:
         m_readPos.store(pos + count);
         return count;
     }
+    
 
     std::uint64_t WriteString(const char*, std::uint64_t = UINT64_MAX) override
     {

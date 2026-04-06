@@ -266,9 +266,8 @@ namespace SPTAG
     			int64_t capacity = static_cast<int64_t>(p_opt.m_cacheSize) << 30;
     			int blockLimit = max(p_opt.m_postingPageLimit, p_opt.m_searchPostingPageLimit) + 1;
     			m_pSearchCache = new FileIO::ShardedLRUCache(p_opt.m_cacheShards, capacity, blockLimit, nullptr);
-    			SPTAGLIB_LOG(Helper::LogLevel::LL_Info,
-        			"ExtraStaticSearcher: cache enabled, capacity=%d GB, shards=%d\n",
-        		p_opt.m_cacheSize, p_opt.m_cacheShards);
+			std::cerr << "ExtraStaticSearcher: cache enabled, capacity=" << p_opt.m_cacheSize 
+          		<< " GB, shards=" << p_opt.m_cacheShards << std::endl;
 		}
 		m_available = true;
                 return true;
@@ -280,6 +279,19 @@ namespace SPTAG
                 SearchStats* p_stats,
                 std::set<int>* truth, std::map<int, std::set<int>>* found)
             {
+		static std::once_flag once;
+    		std::call_once(once, [this]() {
+        		std::cerr << "[SearchIndex] m_pSearchCache=" << (void*)m_pSearchCache << "\n";
+        		#ifdef ASYNC_READ
+        		std::cerr << "[SearchIndex] build=ASYNC_READ\n";
+        		#else
+        		std::cerr << "[SearchIndex] build=SYNC\n";
+        		#endif
+        		#ifdef BATCH_READ
+        		std::cerr << "[SearchIndex] build=BATCH_READ\n";
+        		#endif
+        		std::cerr.flush();
+    		});
                 const uint32_t postingListCount = static_cast<uint32_t>(p_exWorkSpace->m_postingIDs.size());
 
                 COMMON::QueryResultSet<ValueType>& queryResults = *((COMMON::QueryResultSet<ValueType>*)&p_queryResults);
@@ -287,9 +299,18 @@ namespace SPTAG
                 int diskRead = 0;
                 int diskIO = 0;
                 int listElements = 0;
+		static std::once_flag dumpOnce;
+		std::call_once(dumpOnce, [&]() {
+    			std::ofstream f("/tmp/posting_ids_query0.txt");
+    			for (auto id : p_exWorkSpace->m_postingIDs)
+        			f << id << "\n";
+		});
 
 #if defined(ASYNC_READ) && !defined(BATCH_READ)
 		auto unprocessed = std::make_shared<std::atomic<int>>(0);
+#endif
+#if defined(ASYNC_READ) && defined(BATCH_READ)
+		uint32_t ioCount = 0;
 #endif
 
                 for (uint32_t pi = 0; pi < postingListCount; ++pi)
@@ -309,39 +330,62 @@ namespace SPTAG
                     size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
 		    // FIX: Clamp the read size to the buffer size to prevent heap corruption
 		    size_t maxBufferSize = static_cast<size_t>(m_opt->m_searchPostingPageLimit + 1) << PageSizeEx;
-#if defined(ASYNC_READ) && !defined(BATCH_READ)
-    if (m_pSearchCache) {
-        auto& pageBuffer = p_exWorkSpace->m_pageBuffers[pi];
-        if (m_pSearchCache->get(curPostingID, pageBuffer)) {
-            // Cache hit — process inline without issuing an S3 read
-            char* buffer = (char*)pageBuffer.GetBuffer();
-            char* p_postingListFullData = buffer + listInfo->pageOffset;
-            if (m_enableDataCompression) { DecompressPosting(); }
-            ProcessPosting();
-            continue;  // skip async read for this posting
-        }
-    }
-#endif
+    		    static std::atomic<int> loopCount{0};
+    		    int myCount = loopCount.fetch_add(1);
+
+    		    // right before cache lookup
+		    if (m_pSearchCache) {
+        		auto& pageBuffer = p_exWorkSpace->m_pageBuffers[pi];
+        		bool hit = m_pSearchCache->get(curPostingID, pageBuffer);
+			if (hit) {
+            			// Cache hit — process inline without issuing an S3 read
+            			m_cacheHits++;
+	    			char* buffer = (char*)pageBuffer.GetBuffer();
+            			char* p_postingListFullData = buffer + listInfo->pageOffset;
+            			bool decompressionSuccessful = true;
+				if (m_enableDataCompression) {
+				    try {	
+					DecompressPostingIterative(); 
+				    } catch (...) {
+					decompressionSuccessful = false;	
+		   		    }
+				}
+				if (decompressionSuccessful) {
+            			    ProcessPosting();
+				}
+            			continue;  // skip async read for this posting
+        		}
+			m_cacheMisses++;
+    		    }
 		    if (totalBytes > maxBufferSize) {
     			totalBytes = maxBufferSize;
 		    }
+                    m_totalIOs++;
+		    m_totalBytesRead += totalBytes;
 #ifdef ASYNC_READ       
-                    auto& request = p_exWorkSpace->m_diskRequests[pi];
-                    request.m_buffer = (char*)((p_exWorkSpace->m_pageBuffers[pi]).GetBuffer());
-		    request.m_offset = listInfo->listOffset;
-                    request.m_readSize = totalBytes;
-                    request.m_status = (fileid << 16) | (request.m_status & 0xffff);
-                    request.m_payload = (void*)listInfo; 
-                    request.m_success = false;
 
 #ifdef BATCH_READ // async batch read
+		    auto& request = p_exWorkSpace->m_diskRequests[ioCount];
+    request.m_buffer   = (char*)(p_exWorkSpace->m_pageBuffers[pi].GetBuffer());
+    request.m_offset   = listInfo->listOffset;
+    request.m_readSize = totalBytes;
+    request.m_status   = (fileid << 16) | (request.m_status & 0xffff);
+    request.m_payload  = (void*)listInfo;
+    request.m_success  = false;
                     request.m_callback = [p_exWorkSpace, &queryResults, &p_index, requestPtr = &request, &listElements, this](bool success)
                     {
                         char* buffer = requestPtr->m_buffer;
                         ListInfo* listInfo = (ListInfo*)(requestPtr->m_payload);
 
                         // decompress posting list
-                        char* p_postingListFullData = buffer + listInfo->pageOffset;
+			if (m_pSearchCache)
+            		{
+                		SizeType  pid      = static_cast<SizeType>(listInfo - m_listInfos.data());
+                		size_t  dataSize = static_cast<size_t>(listInfo->listPageCount) << PageSizeEx;
+                		bool putOk = m_pSearchCache->put(pid, buffer, dataSize);
+            			static std::atomic<int> putLog{0};
+			}
+			char* p_postingListFullData = buffer + listInfo->pageOffset;
                         if (m_enableDataCompression)
                         {
                             DecompressPosting();
@@ -349,7 +393,15 @@ namespace SPTAG
 
                         ProcessPosting();
                     };
+		    ioCount++;
 #else // async read
+                    auto& request = p_exWorkSpace->m_diskRequests[pi];
+                    request.m_buffer = (char*)((p_exWorkSpace->m_pageBuffers[pi]).GetBuffer());
+		    request.m_offset = listInfo->listOffset;
+                    request.m_readSize = totalBytes;
+                    request.m_status = (fileid << 16) | (request.m_status & 0xffff);
+                    request.m_payload = (void*)listInfo; 
+                    request.m_success = false;
     auto* currentRequestPtr = &p_exWorkSpace->m_diskRequests[pi];
     auto* currentWorkspace = p_exWorkSpace;
     
@@ -375,7 +427,7 @@ namespace SPTAG
                         throw std::runtime_error("File read mismatch");
                     }
                     // decompress posting list
-                    if (m_pSearchCache && request->m_success) {
+                    if (m_pSearchCache) {
         		SizeType postingID = static_cast<SizeType>(listInfo - m_listInfos.data());
         		size_t dataSize = static_cast<size_t>(listInfo->listPageCount) << PageSizeEx;
         		m_pSearchCache->put(postingID, buffer, dataSize);
@@ -392,7 +444,9 @@ namespace SPTAG
 
 #ifdef ASYNC_READ
 #ifdef BATCH_READ
-                BatchReadFileAsync(m_indexFiles, (p_exWorkSpace->m_diskRequests).data(), postingListCount);
+		if (ioCount > 0) {
+                	BatchReadFileAsync(m_indexFiles, (p_exWorkSpace->m_diskRequests).data(), ioCount);
+		}
 #else // This matches your #ifndef BATCH_READ block
                 // CRITICAL: Do not exit until EVERY request has reported back
                 while ((*unprocessed) > 0 || !p_exWorkSpace->m_processIocp.empty())
@@ -408,6 +462,14 @@ namespace SPTAG
 
                         // 2. Decompress/Process (Ensure these functions are thread-safe or 
                         // called only from this main thread)
+			if (m_pSearchCache && request->m_success)
+	                {
+                		SizeType  pid      = static_cast<SizeType>(listInfo - m_listInfos.data());
+                		size_t    dataSize = static_cast<size_t>(
+                                         listInfo->listPageCount) << PageSizeEx;
+                		m_pSearchCache->put(pid, buffer, dataSize);
+            		}
+
                         char* p_postingListFullData = buffer + listInfo->pageOffset;
                         if (m_enableDataCompression)
                         {
@@ -1121,6 +1183,129 @@ namespace SPTAG
                 return m_listInfos[postingID].listEleCount != 0;
             }
 
+	    void PrintStats() const {
+                uint64_t hits = m_cacheHits.load();
+                uint64_t misses = m_cacheMisses.load();
+                uint64_t total = hits + misses;
+                double hitRate = total > 0 ? (100.0 * hits / total) : 0.0;
+
+                std::cerr << "\n========== ExtraStaticSearcher Stats ==========\n"
+                          << "  Cache hits:       " << hits << "\n"
+                          << "  Cache misses (IO ops):     " << misses << "\n"
+                 	  << "  Total IO ops:     " << m_totalIOs.load() << "\n"
+		 	  << "  Total bytes requested: "
+                          << (m_totalBytesRead.load() / 1024 / 1024) << " MB\n"
+                          << "  Cache hit rate:   "
+                          << std::fixed << std::setprecision(2) << hitRate << "%\n"
+                          << "================================================\n\n";
+                std::cerr.flush();
+            }
+
+	    virtual void ReinitCache() override
+      	    {
+    		if (m_pSearchCache)
+    		{
+        		delete m_pSearchCache;
+        		m_pSearchCache = nullptr;
+    		}
+    		if (m_opt && m_opt->m_cacheSize > 0)
+    		{
+        		int64_t capacity = static_cast<int64_t>(m_opt->m_cacheSize) << 30;
+        		int blockLimit = max(m_opt->m_postingPageLimit, m_opt->m_searchPostingPageLimit) + 1;
+        		m_pSearchCache = new FileIO::ShardedLRUCache(
+            			m_opt->m_cacheShards, capacity, blockLimit, nullptr);
+        		SPTAGLIB_LOG(Helper::LogLevel::LL_Info,
+            			"ReinitCache: capacity=%d GB, shards=%d\n",
+            		m_opt->m_cacheSize, m_opt->m_cacheShards);
+    		
+			std::cerr << "ReinitCache: capacity=" << m_opt->m_cacheSize
+          			<< " GB, blockLimit=" << blockLimit
+          			<< ", limitBytes=" << (static_cast<size_t>(blockLimit) << PageSizeEx)
+          			<< ", shards=" << m_opt->m_cacheShards << std::endl;
+			// Warmup: prefetch posting lists into cache until capacity is full.
+			// We read sequentially through all posting lists, stopping when the
+			// cache is full. This ensures the hottest posting lists (by posting ID
+		// order) are warm before the first query arrives.
+		/*SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Warming up cache...\n");
+		size_t warmedBytes = 0;
+		size_t warmedCount = 0;
+		size_t skippedCount = 0;
+		size_t limitBytes = (static_cast<size_t>(blockLimit) << PageSizeEx);
+
+		// Allocate a single read buffer sized to the largest possible posting
+		size_t readBufSize = limitBytes;
+		std::vector<char> readBuf(readBufSize);
+
+		for (int pid = 0; pid < m_totalListCount; pid++)
+		{
+		    ListInfo* listInfo = &(m_listInfos[pid]);
+		    if (listInfo->listEleCount == 0) continue;
+
+		    size_t postingBytes =
+			static_cast<size_t>(listInfo->listPageCount) << PageSizeEx;
+
+		    // Skip postings larger than the per-entry limit
+		    if (postingBytes > limitBytes)
+		    {
+			skippedCount++;
+			continue;
+		    }
+
+		    // Stop if adding this entry would exceed cache capacity
+		    if (warmedBytes + postingBytes > static_cast<size_t>(capacity))
+			break;
+
+		    int fileid = m_oneContext ? 0 : pid / m_listPerFile;
+		    Helper::DiskIO* indexFile = m_indexFiles[fileid].get();
+
+		    auto numRead = indexFile->ReadBinary(
+			postingBytes, readBuf.data(), listInfo->listOffset);
+		    if (numRead != postingBytes)
+		    {
+			SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+			    "Cache warmup: short read for pid=%d, expected=%zu got=%llu\n",
+			    pid, postingBytes, numRead);
+			continue;
+		    }
+
+		    bool ok = m_pSearchCache->put(
+			static_cast<SizeType>(pid),
+			readBuf.data(),
+			static_cast<int>(postingBytes));
+		    if (ok)
+		    {
+			warmedBytes += postingBytes;
+			warmedCount++;
+		    }
+		}
+
+		SPTAGLIB_LOG(Helper::LogLevel::LL_Info,
+		    "Cache warmup complete: %zu posting lists loaded, "
+		    "%zu skipped (too large), %.2f MB warmed\n",
+		    warmedCount, skippedCount,
+		    warmedBytes / 1024.0 / 1024.0);
+	    	
+		if (warmedCount > 0) {
+		    int lastPid = -1;
+		    for (int pid = m_totalListCount - 1; pid >= 0; pid--) {
+			if (m_listInfos[pid].listEleCount == 0) continue;
+			size_t postingBytes = static_cast<size_t>(m_listInfos[pid].listPageCount) << PageSizeEx;
+			if (postingBytes <= limitBytes) { lastPid = pid; break; }
+		    }
+		    if (lastPid >= 0) {
+			Helper::PageBuffer<std::uint8_t> testBuf;
+			bool hit = m_pSearchCache->get(static_cast<SizeType>(lastPid), testBuf);
+			std::cerr << "Warmup verification: get(lastPid=" << lastPid 
+				  << ") -> hit=" << hit << "\n";
+		    }
+		    // Also check a pid in the middle
+		    Helper::PageBuffer<std::uint8_t> testBuf2;
+		    bool hit2 = m_pSearchCache->get(static_cast<SizeType>(20000), testBuf2);
+		    std::cerr << "Warmup verification: get(pid=20000) -> hit=" << hit2 << "\n";
+		}*/
+		}
+	    }
+
             virtual ErrorCode CheckPosting(SizeType postingID, std::vector<std::uint8_t> *visited = nullptr,
                                            ExtraWorkSpace *p_exWorkSpace = nullptr) override
             {
@@ -1802,7 +1987,11 @@ namespace SPTAG
             }
 
         private:
-            bool m_available = false;
+	    std::atomic<uint64_t> m_cacheHits{0};
+	    std::atomic<uint64_t> m_cacheMisses{0};
+	    std::atomic<uint64_t> m_totalBytesRead{0};
+	    std::atomic<uint64_t> m_totalIOs{0};            
+	    bool m_available = false;
 
             std::shared_ptr<Helper::Concurrent::ConcurrentQueue<int>> m_freeWorkSpaceIds;
             std::atomic<int> m_workspaceCount = 0;

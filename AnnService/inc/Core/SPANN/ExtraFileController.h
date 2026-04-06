@@ -282,6 +282,9 @@ namespace SPTAG::SPANN {
                     return false;
                 }
 
+		keys.splice(keys.begin(), keys, it->second.iter);
+    		it->second.iter = keys.begin();
+
                 size_t data_size = it->second.value.size();
                 buffer.ReservePageBuffer(data_size);
                 memcpy(buffer.GetBuffer(), it->second.value.data(), data_size);
@@ -316,7 +319,7 @@ namespace SPTAG::SPANN {
                     it->second.iter = keys.begin();
 
                     int delta_size = put_size - (int)(it->second.value.size());
-                    while ((int)(capacity - size) < delta_size && (keys.size() > 1)) {
+                    while ((capacity - size) < static_cast<int64_t>(delta_size) && (keys.size() > 1)) {
                         auto last = keys.back();
                         auto lastit = cache.find(last);
                         if (!evict(last, lastit->second.value.data(), lastit->second.value.size(), lastit)) {
@@ -332,7 +335,7 @@ namespace SPTAG::SPANN {
                 if (put_size > limit) {
                     return false;
                 }
-                while (put_size > (int)(capacity - size) && (!keys.empty())) {
+                while (static_cast<int64_t>(put_size) > (capacity - size) && (!keys.empty())) {
                     auto last = keys.back();
                     auto lastit = cache.find(last);
                     if (!evict(last, lastit->second.value.data(), lastit->second.value.size(), lastit)) {
@@ -370,7 +373,7 @@ namespace SPTAG::SPANN {
                     std::string valstr(pageBuffer.GetAvailableSize() + merge_size, '\0');
                     memcpy(valstr.data(), pageBuffer.GetBuffer(), pageBuffer.GetAvailableSize());
                     memcpy(valstr.data() + pageBuffer.GetAvailableSize(), value, merge_size);
-                    while (valstr.size() > (int)(capacity - size) && (!keys.empty()))
+                    while (static_cast<int64_t>(valstr.size()) > (capacity - size) && (!keys.empty()))
                     {
                         auto last = keys.back();
                         auto lastit = cache.find(last);
@@ -392,7 +395,7 @@ namespace SPTAG::SPANN {
                 }
                 keys.splice(keys.begin(), keys, it->second.iter);
                 it->second.iter = keys.begin();
-                while((int)(capacity - size) < merge_size && (keys.size() > 1)) {
+                while((capacity - size) < static_cast<int64_t>(merge_size) && (keys.size() > 1)) {
                     auto last = keys.back();
                     auto lastit = cache.find(last);
                     if (!evict(last, lastit->second.value.data(), lastit->second.value.size(), lastit)) {
@@ -467,17 +470,23 @@ namespace SPTAG::SPANN {
             }
 
             bool put(SizeType key, void* value, int put_size) {
-                return caches[hash(key)]->put(key, value, put_size);
+                SizeType cid = hash(key);
+    		std::unique_lock<std::shared_timed_mutex> lock(m_rwMutexs[cid]);
+		return caches[hash(key)]->put(key, value, put_size);
             }
 
             bool del(SizeType key) {
-                return caches[hash(key)]->del(key);
+                SizeType cid = hash(key);
+    		std::unique_lock<std::shared_timed_mutex> lock(m_rwMutexs[cid]);
+		return caches[hash(key)]->del(key);
             }
 
             bool merge(SizeType key, void *value, int merge_size,
                        std::function<bool(const void *val, const int size)> checksum)
             {
-                return caches[hash(key)]->merge(key, value, merge_size, checksum);
+                SizeType cid = hash(key);
+    		std::unique_lock<std::shared_timed_mutex> lock(m_rwMutexs[cid]);
+		return caches[hash(key)]->merge(key, value, merge_size, checksum);
             }
 
             bool flush() {

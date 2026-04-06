@@ -16,6 +16,9 @@
 #pragma warning(disable : 4244) // '=' : conversion from 'int' to 'short', possible loss of data
 #pragma warning(disable : 4127) // conditional expression is constant
 
+SPTAG::Helper::S3FileIO* g_lastS3FileIO = nullptr;
+
+
 namespace SPTAG
 {
 template <typename T> thread_local std::unique_ptr<T> COMMON::ThreadLocalWorkSpaceFactory<T>::m_workspace;
@@ -26,7 +29,9 @@ EdgeCompare Selection::g_edgeComparer;
 std::function<std::shared_ptr<Helper::DiskIO>(void)> f_createAsyncIO = []() -> std::shared_ptr<Helper::DiskIO> {
     const char* backend = std::getenv("SPTAG_IO_BACKEND");
     if (backend && std::string(backend) == "s3") {
-        return std::make_shared<Helper::S3FileIO>(Helper::DiskIOScenario::DIS_BulkRead);
+	auto io = std::make_shared<Helper::S3FileIO>();
+        g_lastS3FileIO = io.get();
+        return io;
     }
     return std::make_shared<Helper::AsyncFileIO>();
 };

@@ -24,6 +24,9 @@
 #include <set>
 #include <thread>
 
+extern SPTAG::Helper::S3FileIO* g_lastS3FileIO;
+
+
 using namespace SPTAG;
 //CHANGED start
 /*namespace SPTAG {
@@ -447,7 +450,6 @@ int main(int argc, char **argv)
         exit(1);
     }
     // CHANGED START
-    std::cerr << "[DEBUG] INIT AWS SDK \n";
     std::cerr.flush();
     Aws::SDKOptions awsOptions;
     Aws::InitAPI(awsOptions);
@@ -457,16 +459,7 @@ int main(int argc, char **argv)
     	return std::shared_ptr<Helper::DiskIO>(new Helper::SimpleFileIO());
     };*/
     // CHANGED END
-    std::cerr << "[DEBUG] Calling Load Index \n";
-    std::cerr.flush();
     std::shared_ptr<SPTAG::VectorIndex> vecIndex;
-    auto ret = SPTAG::VectorIndex::LoadIndex(options->m_indexFolder, vecIndex);
-    if (SPTAG::ErrorCode::Success != ret || nullptr == vecIndex)
-    {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot open index configure file!");
-        return -1;
-    }
-    vecIndex->SetQuantizerADC(options->m_enableADC);
 
     Helper::IniReader iniReader;
     for (int i = 1; i < argc; i++)
@@ -534,6 +527,13 @@ int main(int argc, char **argv)
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Set [BuildSSDIndex]CacheSizeGB = 1 (enable cache)\n");
         }
     }
+    auto ret = SPTAG::VectorIndex::LoadIndex(options->m_indexFolder, vecIndex);
+    if (SPTAG::ErrorCode::Success != ret || nullptr == vecIndex)
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot open index configure file!");
+        return -1;
+    }
+    vecIndex->SetQuantizerADC(options->m_enableADC);
 
     VectorValueType valueType = VectorValueType::Undefined;
     std::string vType = options->m_inputValueType;
@@ -559,6 +559,7 @@ int main(int argc, char **argv)
     }
 
     vecIndex->UpdateIndex();
+    vecIndex->ReinitCache();
     std::cerr << "[DEBUG] m_inputValueType='" << options->m_inputValueType << "' valueType=" << (int)valueType << "\n";
     std::cerr.flush();
     switch (valueType)
@@ -574,6 +575,11 @@ int main(int argc, char **argv)
     default:
         break;
     }
+
+    if (vecIndex) {
+        vecIndex->PrintExtraSearcherStats();
+    }
+
     }
     Aws::ShutdownAPI(awsOptions); // CHANGED added
     return 0;

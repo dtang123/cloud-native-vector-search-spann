@@ -205,6 +205,9 @@ public:
 
     virtual std::string GetPriorityID(int queryID) const { return ""; }
     
+    virtual void PrintExtraSearcherStats() const {} 
+
+    virtual void ReinitCache() {}   
   private:
     ErrorCode LoadIndexConfig(Helper::IniReader& p_reader);
 
