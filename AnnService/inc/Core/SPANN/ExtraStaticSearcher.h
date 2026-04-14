@@ -329,7 +329,6 @@ namespace SPTAG
 
                     size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
 		    // FIX: Clamp the read size to the buffer size to prevent heap corruption
-		    size_t maxBufferSize = static_cast<size_t>(m_opt->m_searchPostingPageLimit + 1) << PageSizeEx;
     		    static std::atomic<int> loopCount{0};
     		    int myCount = loopCount.fetch_add(1);
 
@@ -357,9 +356,6 @@ namespace SPTAG
         		}
 			m_cacheMisses++;
     		    }
-		    if (totalBytes > maxBufferSize) {
-    			totalBytes = maxBufferSize;
-		    }
                     m_totalIOs++;
 		    m_totalBytesRead += totalBytes;
 #ifdef ASYNC_READ       
@@ -561,10 +557,6 @@ namespace SPTAG
 
                     size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
                     // FIX: Clamp the read size to the buffer size to prevent heap corruption
-		    size_t maxBufferSize = static_cast<size_t>(m_opt->m_searchPostingPageLimit + 1) << PageSizeEx;
-		    if (totalBytes > maxBufferSize) {
-    			totalBytes = maxBufferSize;
-		    }
 #ifdef ASYNC_READ       
                     auto& request = p_exWorkSpace->m_diskRequests[pi];
                     request.m_offset = listInfo->listOffset;
@@ -1342,10 +1334,6 @@ namespace SPTAG
 
                 size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
 		// FIX: Clamp the read size to the buffer size to prevent heap corruption
-		size_t maxBufferSize = static_cast<size_t>(m_opt->m_searchPostingPageLimit + 1) << PageSizeEx;
-		if (totalBytes > maxBufferSize) {
-		    totalBytes = maxBufferSize;
-		}
 #ifdef ASYNC_READ       
                 auto& request = p_exWorkSpace->m_diskRequests[0];
                 request.m_offset = listInfo->listOffset;
@@ -1967,10 +1955,6 @@ namespace SPTAG
                 ListInfo* listInfo = &(m_listInfos[pid]);
                 size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
                 // FIX: Clamp the read size to the buffer size to prevent heap corruption
-		size_t maxBufferSize = static_cast<size_t>(m_opt->m_searchPostingPageLimit + 1) << PageSizeEx;
-		if (totalBytes > maxBufferSize) {
-    			totalBytes = maxBufferSize;
-		}
 		size_t realBytes = listInfo->listEleCount * m_vectorInfoSize;
                 posting.resize(totalBytes);
                 int fileid = m_oneContext? 0: pid / m_listPerFile;

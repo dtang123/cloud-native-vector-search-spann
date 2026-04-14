@@ -797,7 +797,7 @@ ErrorCode VectorIndex::LoadIndex(const std::string &p_loaderFilePath, std::share
     std::string folderPath(p_loaderFilePath);
     if (!folderPath.empty() && *(folderPath.rbegin()) != FolderSep)
         folderPath += FolderSep;
-    std::cerr << "[DEBUG] Call to VectorIndex::LoadIndex with folder path: " << folderPath << "\n";
+    // std::cerr << "[DEBUG] Call to VectorIndex::LoadIndex with folder path: " << folderPath << "\n";
     std::cerr.flush();
     Helper::IniReader iniReader;
     {
@@ -835,7 +835,7 @@ ErrorCode VectorIndex::LoadIndex(const std::string &p_loaderFilePath, std::share
     std::vector<std::shared_ptr<Helper::DiskIO>> handles;
     for (std::string &f : *indexfiles)
     {
-	std::cerr << "[DEBUG] Loop through file: " << f << "\n";
+	// std::cerr << "[DEBUG] Loop through file: " << f << "\n";
         std::cerr.flush();
         auto ptr = SPTAG::f_createIO();
         if (ptr == nullptr || !ptr->Initialize((folderPath + f).c_str(), std::ios::binary | std::ios::in))
@@ -850,7 +850,7 @@ ErrorCode VectorIndex::LoadIndex(const std::string &p_loaderFilePath, std::share
     {
         p_vectorIndex->SetParameter("IndexDirectory", p_loaderFilePath, "Base");
     }
-    std::cerr << "[DEBUG] Loading Index Data: \n";
+    // std::cerr << "[DEBUG] Loading Index Data: \n";
     std::cerr.flush();
     if ((ret = p_vectorIndex->LoadIndexData(handles)) != ErrorCode::Success)
         return ret;

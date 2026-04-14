@@ -2,6 +2,7 @@
 #include "inc/Helper/AsyncFileReader.h"
 
 #include <aws/core/Aws.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/GetObjectRequest.h>
@@ -48,6 +49,7 @@ public:
         const char* bucket = std::getenv("SPTAG_S3_BUCKET");
         const char* key    = std::getenv("SPTAG_S3_KEY");
         const char* region = std::getenv("AWS_DEFAULT_REGION");
+	const char* endpoint = std::getenv("MINIO_ENDPOINT");
 
         std::cerr << "[S3FileIO] Bucket=" << (bucket ? bucket : "NOT SET")
                   << " Key=" << (key ? key : "NOT SET") << "\n";
@@ -67,9 +69,27 @@ public:
         cfg.connectTimeoutMs = 5000;
 
         // m_client = std::make_shared<Aws::S3::S3Client>(cfg);
-    
-    	m_client = std::make_shared<Aws::S3::S3Client>(cfg);
-        // HEAD to get file size
+        if (endpoint) {
+	    // Strip "http://" or "https://" prefix — endpointOverride takes host:port only
+	    std::string ep(endpoint);
+	    bool isHttp = (ep.rfind("http://", 0) == 0);
+	    if (ep.rfind("http://", 0) == 0)   ep = ep.substr(7);
+	    if (ep.rfind("https://", 0) == 0)  ep = ep.substr(8);
+	    cfg.endpointOverride = ep;
+	    cfg.scheme = isHttp ? Aws::Http::Scheme::HTTP : Aws::Http::Scheme::HTTPS;
+	    std::cerr << "[S3FileIO] Using custom endpoint: " << endpoint << "\n";
+	}
+	std::cerr << "[S3FileIO] Bucket=" << (bucket ? bucket : "NOT SET")
+          << " Key="     << (key    ? key    : "NOT SET")
+          << " Endpoint=" << (endpoint ? endpoint : "AWS default (real S3)")
+          << "\n";
+        m_client = std::make_shared<Aws::S3::S3Client>(
+	    Aws::Auth::AWSCredentials("admin", "password"),  // explicit MinIO creds
+	    cfg,
+	    Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+	    /*useVirtualAddressing=*/endpoint ? false : true
+	);
+	// HEAD to get file size
         {
             Aws::S3::Model::HeadObjectRequest req;
             req.SetBucket(m_bucket);

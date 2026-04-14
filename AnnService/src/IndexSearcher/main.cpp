@@ -560,7 +560,7 @@ int main(int argc, char **argv)
 
     vecIndex->UpdateIndex();
     vecIndex->ReinitCache();
-    std::cerr << "[DEBUG] m_inputValueType='" << options->m_inputValueType << "' valueType=" << (int)valueType << "\n";
+    // std::cerr << "[DEBUG] m_inputValueType='" << options->m_inputValueType << "' valueType=" << (int)valueType << "\n";
     std::cerr.flush();
     switch (valueType)
     {

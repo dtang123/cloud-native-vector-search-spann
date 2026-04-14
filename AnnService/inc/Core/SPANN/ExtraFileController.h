@@ -458,7 +458,7 @@ namespace SPTAG::SPANN {
             bool get(SizeType key, Helper::PageBuffer<std::uint8_t> &buffer)
             {
                 SizeType cid = hash(key);
-                std::shared_lock<std::shared_timed_mutex> lock(m_rwMutexs[cid]);
+                std::unique_lock<std::shared_timed_mutex> lock(m_rwMutexs[cid]);
                 return caches[cid]->get(key, buffer);
             }
 

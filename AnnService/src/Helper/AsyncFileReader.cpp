@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 
 #include "inc/Helper/AsyncFileReader.h"
+#include <future>
+
 
 namespace SPTAG
 {
@@ -62,16 +64,36 @@ void SetThreadAffinity(int threadID, std::thread &thread, NumaStrategy socketStr
 
 struct timespec AIOTimeout
 {
-    0, 30000
+    0, 50000000	
+//    0, 30000
 };
 bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, AsyncReadRequest *readRequests, int num)
 {
     // If handlers don't use libaio, fall back to virtual BatchReadFile
     if (!handlers.empty() && !handlers[0]->UsesLinuxAIO()) {
+        static std::once_flag f;
+	std::call_once(f, [](){
+        	fprintf(stderr, "[BatchRead] NOT using libaio, falling back to sequential ReadFileAsync\n");
+    	});
+
+	std::vector<std::future<bool>> futures;
+        futures.reserve(num);
         for (int i = 0; i < num; i++) {
             int fileid = (readRequests[i].m_status >> 16);
-            handlers[fileid]->ReadFileAsync(readRequests[i]);
+            auto* req = &readRequests[i];
+            auto* handler = handlers[fileid].get();
+            futures.push_back(std::async(std::launch::async, [handler, req]() {
+                std::uint32_t count = 1;
+                return handler->BatchReadFile(req, count, 
+                                          std::chrono::microseconds(0)) == 1;
+            }));
         }
+        // Wait for all
+        for (auto& f : futures) f.get();
+	/*for (int i = 0; i < num; i++) {
+            int fileid = (readRequests[i].m_status >> 16);
+            handlers[fileid]->ReadFileAsync(readRequests[i]);
+        }*/
         return true;
     }
 
@@ -113,7 +135,7 @@ bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
                     AsyncFileIO *handler = (AsyncFileIO *)(handlers[i].get());
                     int s = syscall(__NR_io_submit, handler->GetIOCP(iocp), iocbs[i].size() - submitted[i],
                                     iocbs[i].data() + submitted[i]);
-                    if (s > 0)
+		    if (s > 0)
                     {
                         submitted[i] += s;
                         totalSubmitted += s;
@@ -127,7 +149,6 @@ bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
                 }
             }
         }
-
         for (int i = totalQueued; i < totalDone; i++)
         {
             AsyncReadRequest *req = reinterpret_cast<AsyncReadRequest *>((events[i].data));
@@ -138,15 +159,17 @@ bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
         }
         totalQueued = totalDone;
 
+
         for (int i = 0; i < handlers.size(); i++)
         {
             if (done[i] < submitted[i])
             {
                 int wait = submitted[i] - done[i];
                 AsyncFileIO *handler = (AsyncFileIO *)(handlers[i].get());
-                auto d = syscall(__NR_io_getevents, handler->GetIOCP(iocp), wait, wait, events.data() + totalDone,
+		auto d = syscall(__NR_io_getevents, handler->GetIOCP(iocp), wait, wait, events.data() + totalDone,
                                  &AIOTimeout);
-                if (d > 0)
+
+		if (d > 0)
                 {
                     done[i] += d;
                     totalDone += d;
@@ -163,6 +186,7 @@ bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
             req->m_callback(true);
         }
     }
+
     return true;
 }
 #else
