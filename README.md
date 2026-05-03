@@ -4,7 +4,7 @@
 ```
 mkdir -p build
 cd build
-cmake ..
+cmake -DCMAKE_PREFIX_PATH=/path/to/awssdk ..
 make indexbuilder
 make indexsearcher
 ```
