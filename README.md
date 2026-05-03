@@ -3,6 +3,7 @@
 ```
 cd SPTAG/build
 make indexbuilder
+make indexsearcher
 ```
 ### Example buildconfig.ini file
 ```
