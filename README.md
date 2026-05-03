@@ -2,8 +2,9 @@
 ## Index Build
 ### Build executables
 ```
-cmake .
+mkdir -p build
 cd build
+cmake ..
 make indexbuilder
 make indexsearcher
 ```
