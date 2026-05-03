@@ -1,5 +1,6 @@
 # Steps:
 ## Index Build
+### Build executables
 ```
 cd build
 cmake ..
@@ -59,7 +60,7 @@ MaxCheck=16324
 TmpDir=/tmp/
 ```
 ### Command
-Use DEFAULT for /.bin file
+Use DEFAULT for a .bin file
 ```
 ./SPTAG/Release/indexbuilder -d 960 -v Float -f DEFAULT -i ./GIST1M/gist_base.bin -o /output/folder -a SPANN -c /path/to/buildconfig.ini -t 2
 ```
