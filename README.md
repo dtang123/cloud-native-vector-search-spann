@@ -1,7 +1,8 @@
 # Steps:
 ## Index Build
 ```
-cd SPTAG/build
+cd build
+cmake ..
 make indexbuilder
 make indexsearcher
 ```
