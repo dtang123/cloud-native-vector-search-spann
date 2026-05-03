@@ -2,6 +2,7 @@
 ## Index Build
 ### Build executables
 ```
+git submodule update --init --recursive
 mkdir -p build
 cd build
 cmake -DCMAKE_PREFIX_PATH=/path/to/awssdk ..
@@ -272,12 +273,6 @@ echo "AWS SDK libs:"
 ls /home/tang627/awssdk/lib/libaws-cpp-sdk-{core,s3}.so
 echo ""
 echo "Environment ready."
-echo "Run indexsearcher with:"
-echo "  ./SPTAG/Release/indexsearcher \\"
-echo "    --index /dev/shm/sptag_metadata \\"
-echo "    --dimension 960 --vectortype Float \\"
-echo "    --input /dev/shm/gist_query.bin --filetype DEFAULT \\"
-echo "    --truth /dev/shm/gist_groundtruth.bin --KNN 10"
 ```
 ### Setup traffic control to mimic cloud native indexing
 ```
@@ -302,7 +297,7 @@ for cache_size in 4096; do
             echo "Starting: Cache=${cache_size}M, nprobe=${nprobe}, Threads=${num_concurrent_queries}"
             echo "${cache_size} ${nprobe} ${num_concurrent_queries}" >> "$RESULTS_FILE"
             for l in 1 2 3 4 5; do
-                ./SPTAG/Release/indexsearcher \
+                ./path/to/Release/indexsearcher \
                     --vectortype Float \
                     --valuetype Float \
                     --dimension 960 \
