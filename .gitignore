@@ -1,4 +1,4 @@
-build/*/
+build/
 build/CMakeCache.txt
 Wrappers/
 Script_AE/
