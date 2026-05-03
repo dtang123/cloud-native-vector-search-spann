@@ -1,3 +1,8 @@
+build/*/
+Wrappers/
+Script_AE/
+Tools
+Release
 # IDE files
 .vscode/
 .idea/
