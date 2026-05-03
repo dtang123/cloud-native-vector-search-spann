@@ -1,8 +1,11 @@
 # Steps:
 ## Index Build
+### Build executables
 ```
-cd SPTAG/build
+cd build
+cmake ..
 make indexbuilder
+make indexsearcher
 ```
 ### Example buildconfig.ini file
 ```
@@ -57,7 +60,7 @@ MaxCheck=16324
 TmpDir=/tmp/
 ```
 ### Command
-Use DEFAULT for /.bin file
+Use DEFAULT for a .bin file
 ```
 ./SPTAG/Release/indexbuilder -d 960 -v Float -f DEFAULT -i ./GIST1M/gist_base.bin -o /output/folder -a SPANN -c /path/to/buildconfig.ini -t 2
 ```
