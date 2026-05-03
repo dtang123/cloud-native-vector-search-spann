@@ -152,7 +152,7 @@ grep -q "SPTAG_IO_BACKEND"     ~/.bashrc || echo "export SPTAG_IO_BACKEND=s3"   
 source ~/.bashrc
 
 # Make sure runtime linker can find AWS SDK shared libs
-export LD_LIBRARY_PATH=/home/tang627/awssdk/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/path/to/awssdk/lib:$LD_LIBRARY_PATH
 
 # 2. Setup RAM Disk Metadata (The "Hot" Data - loaded once at startup)
 # These files are small enough to fit in RAM and give microsecond-latency
@@ -233,8 +233,8 @@ chmod 755 /dev/shm/sptag_metadata/indexloader.ini
 
 # 4. Stage query and ground truth files
 echo "Staging query and truth files..."
-cp /hdd_root/tang627/GIST1M/gist_query.bin       /dev/shm/
-cp /hdd_root/tang627/GIST1M/gist_groundtruth.bin /dev/shm/
+cp /path/to/gist_query.bin       /dev/shm/
+cp /path/to/gist_groundtruth.bin /dev/shm/
 
 # 5. Verify MinIO is reachable and file exists
 echo "--- Environment Check ---"
@@ -270,7 +270,7 @@ else
 fi
 
 echo "AWS SDK libs:"
-ls /home/tang627/awssdk/lib/libaws-cpp-sdk-{core,s3}.so
+ls /path/to/awssdk/lib/libaws-cpp-sdk-{core,s3}.so
 echo ""
 echo "Environment ready."
 ```
